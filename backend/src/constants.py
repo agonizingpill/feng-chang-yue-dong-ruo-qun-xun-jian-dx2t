@@ -20,6 +20,10 @@ class VisitState(StrEnum):
     CARING='caring'
     FOLLOWUP='followup'
     NEEDS_REQUEEN='needs_requeen'
+    RETEST_PENDING='retest_pending'
     CLOSED='closed'
     STALE='stale'
     BLOCKED='blocked'
+class RetestState(StrEnum):
+    PENDING='pending'
+    RESOLVED='resolved'

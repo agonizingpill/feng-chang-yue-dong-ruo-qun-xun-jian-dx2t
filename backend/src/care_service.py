@@ -8,6 +8,10 @@ def plan(db,body,user):
     visit=require(db,Visit,body.visit_id,True);hive=require(db,Hive,visit.hive_id,True)
     if latest(db,hive.id)!=visit.id:raise HTTPException(409,'请基于该箱最新巡检建立处置')
     if visit.status not in ['screened','needs_requeen']:raise HTTPException(409,'须先完成弱群筛查，或为无王复查建立换王处置')
+    if body.kind=='feed':
+        from .retest_service import pending_for_hive
+        pending=pending_for_hive(db,hive.id)
+        if pending:raise HTTPException(409,'该箱正在待复测，暂停新建饲喂；请先在筛查页补测读数')
     if body.feed_kg>3:raise HTTPException(409,'每箱单次饲喂不得超过3kg，请拆分到后续复查计划')
     if body.kind=='feed' and body.feed_kg<=0:raise HTTPException(409,'饲喂量必须大于0')
     if body.kind=='requeen' and body.feed_kg!=0:raise HTTPException(409,'换王计划饲喂量应为0，饲喂需单独记录')

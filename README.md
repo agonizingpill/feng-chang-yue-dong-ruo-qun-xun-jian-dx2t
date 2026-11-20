@@ -100,3 +100,23 @@ Seed增加FD-202611-A可用30kg、FD-HOLD隔离8kg、FD-EXPIRED已过期5kg，�
 GET /moves /insulation-lots /insulation-installs /spring-reviews供三角色；POST /moves、complete/cancel、POST /insulation-lots、POST /insulation-installs、PUT ventilation、POST remove及POST /spring-reviews允许蜂师/主管；move approve、insulation accept、spring pass及物料隔离仅主管，viewer全部只读。各新增模型均有外键；物料数量与春检值域由数据库和Pydantic校验。
 
 Seed只在缺失时增加IN-2026-WINTER 120件，不改人工库存/安装/春检；历史winter_ready无需补装以维持历史状态，新的春检动作才要求保温。真实证据在test-artifacts/gb-1027/v3/。本地检疫留痕不替代行政检疫证；每箱每季一条春检，本演示固定2026越冬季，无跨季归档。
+
+## V4 低温测量误差与待复测
+
+冷天抬箱称重与箱温读数容易偏差，巡检登记时除体重、箱温外必须同时填 `weight_error_kg`、`temperature_error_c` 两项误差。原始读数仍原样存入 Visit，误差与分值另存 Reading（每巡检一条），不改旧 `visits` 表结构；新表由 metadata 补建。
+
+**组合分值**：筛查先按原始读数打分，再将体重、箱温各自展开为“读数±误差”的上下限，得到四组组合读数（体重低/低、低/高、高/低、高/高），每组各算一次 IsolationForest `score_samples`，另存 `score_breakdown`。原始分值或任一组组合分值低于 `offset_` 阈值（`crosses=true`）即“跨异常线”。活动、余饲仍取原巡检值，不参与误差展开。体重下限不低于 0.01kg。
+
+**待复测单**：跨线后自动建立 RetestOrder（`RT-0001` 起），保存初测读数、两项误差、初测 breakdown 与依据巡检，同箱状态转 `retest_pending`。已建有未完成处置的箱仍可保留原处置；初测 Visit 的读数与打分不被复测覆盖。复测单只有 `pending/resolved` 两态。
+
+**复测**：`POST /retest-orders/{id}/retests` 另填体重、箱温与两项误差，按同一口径重算原始与四组组合分值，写入 Retest（逐次 attempt）。仍跨线则单保持 `pending`，可继续补测；未跨线则转 `resolved`，箱况回到筛查后的判断。初测依据始终保留，复测不改写 Visit 或处置。
+
+**并发与重试**：Retest.request_id 唯一。同一待复测单并发补测只收一份：写入前校验 `expected_version`（单上的 version），另一份成功后旧版本请求返回 409；唯一约束兜底，回执丢失时用同一 request_id 重试返回原回执，不重复收件。Retest 另有 `(order_id, attempt)` 唯一约束。
+
+**与处置的关系**：待复测期间暂停新建饲喂（plan 接口对 kind=feed 返回 409），已建处置保留原依据、执行/复查/关闭不受影响；换王计划仍可建立。待复测箱不能另建巡检（须在筛查页补测），批量筛查跳过这些箱，单箱筛查亦拒绝。
+
+**筛查页**：新增待复测区，可直接登记复测读数并查看初测、每次复测的原始与四组组合分值；每箱巡检表增加体重±误差、箱温±误差与组合最低分列，可展开查看组合明细。
+
+接口：`GET /readings`、`GET /retest-orders`、`GET /retest-orders/{id}`（含各次 retests）、`GET /retests`、`POST /retest-orders/{id}/retests`（蜂师/主管，观察员只读）。后端新增 `measurement.py/retest_service.py/retest_routes.py/retest_schemas.py`；`screen_model.py` 增加 `assess_reading`，worker 与 seed 同步补登记误差。Seed 为既有历史巡检补齐默认误差 ±0.2kg/±0.5°C，不覆盖人工读数；不回填已完成处置。
+
+验证：`python3` 直连 SQLite 跑通组合计算、建单、幂等重试、版本冲突、仍跨线续待复测、回线结束、暂停饲喂等 18 项行为；FastAPI TestClient 跑通巡检→误差→建单→复测→回执重放→观察员只读全链路。

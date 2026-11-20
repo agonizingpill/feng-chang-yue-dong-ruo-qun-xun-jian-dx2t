@@ -13,6 +13,8 @@ class VisitInput(BaseModel):
     hive_id:int
     weight_kg:float=Field(gt=0,le=100)
     temperature:float=Field(ge=-10,le=50)
+    weight_error_kg:float=Field(ge=0,le=5,default=0)
+    temperature_error_c:float=Field(ge=0,le=10,default=0)
     activity:float=Field(ge=0,le=500)
     feed_left:float=Field(ge=0,le=20)
     queen_seen:bool
